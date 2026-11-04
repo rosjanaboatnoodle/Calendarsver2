@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="apple-touch-icon" href="calendar-icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="calendar-favicon-32.png">
+<title>ปฏิทินตารางงาน — รสจนา</title>
+<style>
+  :root{
+    --bg1:#5b73ff;
+    --bg2:#bf2cff;
+    --ink:#1d2b6a;
+    --muted:#6c75a8;
+    --shadow: 0 10px 24px rgba(0,0,0,.18);
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", Arial, sans-serif;
+    background: linear-gradient(180deg, var(--bg1), var(--bg2));
+    min-height:100vh;
+    color:#111;
+  }
+  .wrap{ max-width: 760px; margin:0 auto; padding: 32px 16px 60px; }
+  .panel{ background: rgba(255,255,255,.14); border-radius: 22px; padding: 18px 18px 24px; backdrop-filter: blur(2px); }
+  h1{ margin: 4px 0 4px; font-size: 22px; color:#fff; }
+  .sub{ color: rgba(255,255,255,.85); font-size: 13px; font-weight:700; margin-bottom: 14px; }
+
+  .monthBar{
+    display:flex; align-items:center; justify-content:space-between;
+    background: rgba(255,255,255,.92); border-radius: 14px; padding: 10px 12px; margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .monthBar button{
+    border:none; background:#0f172a; color:#fff; font-weight:900; padding: 8px 14px; border-radius: 999px; cursor:pointer; font-size:14px;
+  }
+  .monthLabel{ font-weight:900; color:#0f172a; font-size:16px; }
+
+  .legend{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+  .legendItem{ display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:800; color:#fff; }
+  .dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+
+  .grid{
+    background: rgba(232,233,255,.92); border-radius: 18px; padding: 10px; box-shadow: var(--shadow);
+    display:grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap:6px;
+  }
+  .dow{ text-align:center; font-size:11.5px; font-weight:900; color: var(--muted); padding: 4px 0; }
+  .day{
+    background:#fff; border-radius:10px; min-height: 64px; padding: 6px 4px; cursor:pointer;
+    border: 1px solid rgba(0,0,0,.06); position:relative; display:flex; flex-direction:column; gap:4px;
+  }
+  .day.empty{ background:transparent; border:none; cursor:default; }
+  .day.today{ outline: 2px solid #0f172a; }
+  .dayNum{ font-weight:900; font-size:13px; color:#0f172a; }
+  .badges{ display:flex; gap:3px; flex-wrap:wrap; }
+  .badge{ font-size:10px; padding:1px 5px; border-radius:999px; font-weight:900; color:#fff; }
+  .badge{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge.person{ padding:1px 3px; font-size:9px; letter-spacing:-.2px; }
+
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; padding:18px; z-index:99; }
+  .overlay.show{ display:flex; }
+  .modal{ width:min(420px,100%); background:#fff; border-radius:16px; padding:18px; box-shadow: var(--shadow); }
+  .modalTitle{ font-weight:900; color:#0f172a; font-size:16px; margin-bottom:12px; }
+  .row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed rgba(0,0,0,.1); }
+  .row label{ font-weight:800; font-size:14px; color:#111827; flex:1; }
+  .row input[type=checkbox]{ width:20px; height:20px; }
+  .row select{ padding:6px 8px; border-radius:8px; border:2px solid #c4b5fd; font-size:14px; font-weight:700; }
+  .actions{ display:flex; gap:10px; margin-top:14px; }
+  .actions button{ flex:1; border:none; border-radius:999px; padding:11px; font-weight:900; cursor:pointer; font-size:13px; }
+  .btnSave{ background:#0f9b6b; color:#fff; }
+  .btnCancel{ background:#e5e7eb; color:#111827; }
+  .statusMsg{ font-size:12px; font-weight:800; margin-top:8px; min-height:16px; }
+  .pinRow{ margin-top:2px; }
+  .pinRow input{ width:100%; padding:10px; border-radius:8px; border:2px solid #93c5fd; font-size:15px; }
+
+  .titleRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .gearBtn{ border:none; background:rgba(255,255,255,.22); color:#fff; font-size:18px; width:38px; height:38px; border-radius:50%; cursor:pointer; flex:none; }
+  .branchBar{ display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .branchBar label{ color:#fff; font-weight:900; font-size:13px; flex:none; }
+  .branchBar select{ flex:1; min-width:0; padding:9px 10px; border-radius:12px; border:none; font-size:15px; font-weight:800; color:#0f172a; background:rgba(255,255,255,.92); }
+  .branchName{ color:#fff; font-weight:900; font-size:15px; margin-bottom:12px; }
+
+  .modal.wide{ width:min(520px,100%); max-height:calc(100vh - 36px); overflow:auto; }
+  .secTitle{ font-weight:900; font-size:14px; color:#0f172a; margin:14px 0 6px; }
+  .hint{ font-size:12px; color:#6b7280; font-weight:700; margin-bottom:6px; }
+  .field{ width:100%; padding:9px 10px; border-radius:8px; border:2px solid #e5e7eb; font-size:14px; }
+  .fieldRow{ display:flex; gap:6px; margin-bottom:6px; align-items:center; }
+  .fieldRow .field{ flex:1; min-width:0; }
+  .fieldRow .field.sm{ flex:0 0 70px; }
+  .smallBtn{ border:none; border-radius:8px; padding:8px 10px; font-weight:900; cursor:pointer; font-size:12.5px; background:#e5e7eb; color:#111827; flex:none; }
+  .smallBtn.dark{ background:#0f172a; color:#fff; }
+  .smallBtn.red{ background:#fee2e2; color:#b91c1c; }
+
+  .topRight{ display:flex; align-items:center; gap:8px; }
+  .langSelect{ border:none; background:rgba(255,255,255,.22); color:#fff; font-weight:900; font-size:13px; padding:9px 8px; border-radius:999px; }
+  .langSelect option{ color:#111827; }
+  .msgList{ display:flex; flex-direction:column; gap:8px; margin-bottom:6px; }
+  .msgItem{ border-left:5px solid #8b5cf6; background:#f8fafc; border-radius:10px; padding:10px 12px; }
+  .msgName{ font-size:12px; font-weight:900; color:#6b7280; margin-bottom:3px; }
+  .msgText{ font-size:15px; font-weight:800; color:#111827; white-space:pre-wrap; }
+  .msgEmpty{ font-size:14px; font-weight:800; color:#6b7280; padding:10px 0; }
+  .btnEdit{ background:#0f172a; color:#fff; }
+  .dotC{ width:22px; height:22px; border-radius:6px; border:none; padding:0; flex:none; }
+  .langGrid{ display:grid; grid-template-columns: 74px 1fr; gap:6px; align-items:start; margin-bottom:8px; }
+  .langGrid .lg{ font-size:12.5px; font-weight:900; color:#374151; padding-top:9px; }
+  .langGrid .cell{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .edited{ border-color:#f59e0b !important; }
+  .tag{ font-size:11px; font-weight:900; color:#b45309; }
+  textarea.field{ resize:vertical; min-height:54px; font-family:inherit; }
+  details.box{ border:1px solid #e5e7eb; border-radius:12px; padding:8px 10px; margin-top:10px; }
+  details.box > summary{ font-weight:900; font-size:14px; color:#0f172a; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <div class="titleRow">
+      <h1 data-t="title">ปฏิทินตารางงาน</h1>
+      <div class="topRight">
+        <select class="langSelect" id="langSelect" onchange="setLang(this.value)" aria-label="Language">
+          <option value="th">ไทย</option>
+          <option value="en">English</option>
+          <option value="my">မြန်မာ</option>
+          <option value="lo">ລາວ</option>
+          <option value="km">ខ្មែរ</option>
+          <option value="vi">Tiếng Việt</option>
+        </select>
+        <button class="gearBtn" onclick="openSettings()" title="ตั้งค่า">⚙️</button>
+      </div>
+    </div>
+    <div class="sub" id="subText" data-t="sub">กดที่วันเพื่อดูรายละเอียด</div>
+
+    <div class="branchBar" id="branchBar" style="display:none;">
+      <label for="branchSelect" data-t="branch">สาขา</label>
+      <select id="branchSelect" onchange="selectBranch(this.value)"></select>
+    </div>
+    <div class="branchName" id="branchName"></div>
+
+    <div class="monthBar">
+      <button onclick="changeMonth(-1)" data-t="prevMonth">‹ เดือนก่อน</button>
+      <div class="monthLabel" id="monthLabel"></div>
+      <button onclick="changeMonth(1)" data-t="nextMonth">เดือนถัดไป ›</button>
+    </div>
+
+    <div class="legend" id="legend"></div>
+    <div class="grid" id="grid"></div>
+  </div>
+</div>
+
+<!-- ดูรายละเอียดวัน (ทุกคน) -->
+<div class="overlay" id="viewOverlay">
+  <div class="modal">
+    <div class="modalTitle" id="viewTitle"></div>
+    <div class="msgList" id="viewList"></div>
+    <div class="actions">
+      <button class="btnCancel" onclick="closeView()" data-t="close">ปิด</button>
+      <button class="btnEdit" onclick="openEdit()" data-t="editDay">✏️ แก้ไขวันนี้</button>
+    </div>
+  </div>
+</div>
+
+<!-- แก้ไขวัน (แอดมิน) -->
+<div class="overlay" id="editOverlay">
+  <div class="modal">
+    <div class="modalTitle" id="editTitle"></div>
+    <div id="editRows"></div>
+    <div class="pinRow">
+      <input id="adminPin" type="password" inputmode="numeric" data-tp="pinPlaceholder" placeholder="รหัสแอดมิน (กลาง หรือของสาขานี้)">
+    </div>
+    <div class="actions">
+      <button class="btnCancel" onclick="closeEdit()" data-t="cancel">ยกเลิก</button>
+      <button class="btnSave" onclick="saveDay()" data-t="save">บันทึก</button>
+    </div>
+    <div class="statusMsg" id="statusMsg"></div>
+  </div>
+</div>
+
+<!-- ตั้งค่า (แอดมินกลาง) — หน้านี้ใช้ภาษาไทยอย่างเดียว -->
+<div class="overlay" id="settingsOverlay">
+  <div class="modal wide">
+    <div class="modalTitle">ตั้งค่า</div>
+
+    <div id="setLock">
+      <div class="hint">ใช้รหัสแอดมินกลางเท่านั้น</div>
+      <div class="pinRow"><input id="setPin" type="password" placeholder="รหัสแอดมินกลาง" inputmode="numeric"></div>
+      <div class="actions">
+        <button class="btnCancel" onclick="closeSettings()">ปิด</button>
+        <button class="btnSave" onclick="unlockSettings()">เข้าสู่การตั้งค่า</button>
+      </div>
+    </div>
+
+    <div id="setBody" style="display:none;">
+      <details class="box" open>
+        <summary>หัวข้อในปฏิทิน และข้อความถึงทีมงาน</summary>
+        <div class="fieldRow" style="margin-top:8px;">
+          <select class="field" id="setTopic" onchange="loadTopicForm()"></select>
+          <button class="smallBtn dark" onclick="newTopicForm()">+ เพิ่มหัวข้อ</button>
+        </div>
+        <div class="fieldRow"><input class="field" id="tpName" placeholder="ชื่อหัวข้อ เช่น เวรทิ้งขยะ"></div>
+        <div class="fieldRow">
+          <input class="field" id="tpShort" placeholder="คำสั้นบนปฏิทิน เช่น ขยะ">
+          <input class="dotC" id="tpColor" type="color" value="#8b5cf6" title="สี">
+        </div>
+        <div class="fieldRow">
+          <select class="field" id="tpKind">
+            <option value="check">แบบติ๊ก (มี/ไม่มี เช่น วันหยุด)</option>
+            <option value="person">แบบเลือกคน (เช่น ตารางเวร)</option>
+          </select>
+        </div>
+        <div class="fieldRow"><textarea class="field" id="tpMessage" placeholder="ข้อความถึงทีมงาน (ภาษาไทย) ใช้ {name} แทนชื่อคนเวร"></textarea></div>
+        <div class="fieldRow">
+          <button class="smallBtn" onclick="aiTranslateTopic()">🌐 แปลด้วย AI</button>
+          <span class="hint" style="margin:0;">แปลแล้วเช็ค/แก้ในช่องด้านล่างได้ ช่องสีส้ม = แก้เอง AI จะไม่ทับ</span>
+        </div>
+        <div id="tpLangs"></div>
+        <div class="fieldRow">
+          <button class="smallBtn dark" onclick="saveTopic()">บันทึกหัวข้อ</button>
+          <button class="smallBtn red" id="btnDeleteTopic" onclick="deleteTopic()">ลบหัวข้อนี้</button>
+        </div>
+      </details>
+
+      <details class="box">
+        <summary>สาขา</summary>
+        <div class="fieldRow" style="margin-top:8px;">
+          <select class="field" id="setBranch" onchange="fillBranchForm()"></select>
+          <button class="smallBtn dark" onclick="newBranchForm()">+ เพิ่มสาขา</button>
+        </div>
+        <div class="fieldRow"><input class="field" id="setBranchName" placeholder="ชื่อสาขา เช่น รสจนา สาขา 2"></div>
+        <div class="fieldRow" id="setBranchIdRow"><input class="field" id="setBranchId" placeholder="รหัสสาขาในลิงก์ (ภาษาอังกฤษ เช่น branch2)"></div>
+        <div class="fieldRow"><input class="field" id="setBranchPin" type="password" inputmode="numeric" placeholder="รหัสแอดมินของสาขา (เว้นว่าง = ไม่เปลี่ยน, ใส่ - = ลบ)"></div>
+        <div class="hint" id="setBranchLink"></div>
+        <div class="fieldRow">
+          <button class="smallBtn dark" onclick="saveBranch()">บันทึกสาขา</button>
+          <button class="smallBtn red" id="btnDeleteBranch" onclick="deleteBranch()">ลบสาขานี้</button>
+        </div>
+
+        <div class="secTitle">พนักงาน (สาขาที่เลือก)</div>
+        <div class="hint">ชื่อ = ชื่อในข้อความ (เช่น Kla) / ชื่อเต็ม = แสดงในตัวเลือก / ชื่อสั้น = แสดงบนปฏิทิน</div>
+        <div id="staffRows"></div>
+        <div class="fieldRow">
+          <button class="smallBtn" onclick="addStaffRow()">+ เพิ่มคน</button>
+          <button class="smallBtn dark" onclick="saveStaff()">บันทึกรายชื่อ</button>
+        </div>
+      </details>
+
+      <details class="box">
+        <summary>ภาษาบนหน้าเว็บ</summary>
+        <div class="hint" style="margin-top:8px;">แปลปุ่ม ข้อความบนหน้านี้ และข้อความของทุกหัวข้อ แล้วเช็ค/แก้ได้ ช่องสีส้ม = แก้เอง AI จะไม่ทับ</div>
+        <div class="fieldRow">
+          <button class="smallBtn dark" onclick="translatePage(false)">🌐 แปลส่วนที่ยังไม่แปล</button>
+          <button class="smallBtn" onclick="translatePage(true)">แปลใหม่ทั้งหมด</button>
+        </div>
+        <div class="fieldRow">
+          <select class="field" id="uiLang" onchange="loadUiRows()">
+            <option value="en">English</option><option value="my">မြန်မာ</option><option value="lo">ລາວ</option>
+            <option value="km">ខ្មែរ</option><option value="vi">Tiếng Việt</option>
+          </select>
+        </div>
+        <div id="uiRows"></div>
+        <div class="fieldRow"><button class="smallBtn dark" onclick="saveUiRows()">บันทึกคำแปล</button></div>
+      </details>
+
+      <details class="box">
+        <summary>เปลี่ยนรหัสแอดมินกลาง</summary>
+        <div class="fieldRow" style="margin-top:8px;">
+          <input class="field" id="setNewPin" type="password" inputmode="numeric" placeholder="รหัสใหม่ (อย่างน้อย 4 ตัว)">
+          <button class="smallBtn dark" onclick="changeAdminPin()">เปลี่ยน</button>
+        </div>
+      </details>
+
+      <div class="statusMsg" id="setStatus"></div>
+      <div class="actions"><button class="btnCancel" onclick="closeSettings()">ปิด</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ข้อมูลอยู่ใน Supabase project ของระบบพนักงาน ผ่าน Edge Function "api" (โค้ดอยู่ใน supabase/ ของ repo นี้)
+  // ใส่ค่าจาก Supabase Dashboard -> Project Settings -> API:
+  //   PROJECT_REF = ส่วนหน้าของ Project URL (https://<PROJECT_REF>.supabase.co)
+  //   SUPABASE_KEY = publishable key (sb_publishable_...) ฝังในหน้าเว็บได้ ข้อมูลจริงถูกล็อกด้วย RLS
+  const PROJECT_REF = "YOUR_PROJECT_REF";
+  const SUPABASE_KEY = "YOUR_PUBLISHABLE_KEY";
+  const API = "https://" + PROJECT_REF + ".supabase.co/functions/v1/api";
+
+  // ข้อความบนหน้าเว็บ (ต้นฉบับภาษาไทย) คำแปลเก็บใน Supabase ที่ key "ui.cal.<ชื่อ>"
+  // เพิ่ม/แก้ข้อความตรงนี้ แล้วกด "แปลส่วนที่ยังไม่แปล" ในหน้าตั้งค่า
+  const UI_TH = {
+    title: "ปฏิทินตารางงาน",
+    sub: "กดที่วันเพื่อดูรายละเอียด",
+    branch: "สาขา",
+    prevMonth: "‹ เดือนก่อน",
+    nextMonth: "เดือนถัดไป ›",
+    close: "ปิด",
+    editDay: "✏️ แก้ไขวันนี้",
+    noItems: "วันนี้ไม่มีรายการ",
+    cancel: "ยกเลิก",
+    save: "บันทึก",
+    none: "— ไม่มี —",
+    pinPlaceholder: "รหัสแอดมิน (กลาง หรือของสาขานี้)",
+    enterPin: "กรุณากรอกรหัสผ่านแอดมิน",
+    saving: "กำลังบันทึก...",
+    wrongPin: "รหัสแอดมินไม่ถูกต้อง",
+    connectFail: "เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้ง"
+  };
+  const LANGS = ["en", "my", "lo", "km", "vi"];
+  const LANG_LABEL = { th: "ไทย", en: "English", my: "မြန်မာ", lo: "ລາວ", km: "ខ្មែរ", vi: "Tiếng Việt" };
+  const LOCALE = { th: "th-TH", en: "en-GB", my: "my-MM", lo: "lo-LA", km: "km-KH", vi: "vi-VN" };
+
+  let lang = "th";
+  let dict = {};          // คำแปลของภาษาที่เลือก { "ui.cal.save": "...", "topic.holiday.name": "..." }
+  let branches = [];      // [{ id, name, sync_sheet, staff: [{name, label, short}] }]
+  let topics = [];        // [{ id, color, kind, sort }]
+  let branchId = "";
+  let viewYear, viewMonth; // viewMonth: 0-11
+  let dayMap = {};        // { "2026-11-05": [{ topic_id, person }] }
+  let openDate = "";
+  let settingsPin = "";
+
+  const ERRORS = {
+    pin_too_short: "รหัสต้องมีอย่างน้อย 4 ตัว",
+    missing_name: "กรุณาใส่ชื่อ",
+    bad_branch_id: "รหัสสาขาต้องเป็นภาษาอังกฤษหรือตัวเลข",
+    duplicate_name: "มีชื่อซ้ำกัน",
+    last_branch: "ลบสาขาสุดท้ายไม่ได้",
+    unknown_branch: "ไม่พบสาขานี้"
+  };
+
+  function pad2(n){ return n < 10 ? "0"+n : ""+n; }
+  function ymKey(y,m){ return y + "-" + pad2(m+1); }
+  function dateKey(y,m,d){ return y + "-" + pad2(m+1) + "-" + pad2(d); }
+  function t(key){ return dict["ui.cal." + key] || UI_TH[key] || key; }
+  function topicText(id, field){ return dict["topic." + id + "." + field] || ""; }
+  function errText(j){
+    if (!j) return t("connectFail");
+    if (j.error === "wrong_admin_pin") return t("wrongPin");
+    return ERRORS[j.error] || ("ไม่สำเร็จ: " + (j.error || "unknown"));
+  }
+  function setMsg(id, text, ok){ const el = document.getElementById(id); el.textContent = text; el.style.color = ok ? "#0f9b6b" : (ok === false ? "#dc2626" : "#374151"); }
+  function currentBranch(){ return branches.find(b => b.id === branchId) || null; }
+  function lsGet(k){ try{ return localStorage.getItem(k); } catch(e){ return null; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, v); } catch(e){} }
+  function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+  async function api(params){
+    try{
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_KEY, "apikey": SUPABASE_KEY },
+        body: JSON.stringify(params)
+      });
+      const j = await r.json().catch(() => null);
+      if (j && j.ok && j.sheet_synced === false && j.sheet_error) console.warn("บันทึกแล้ว แต่ซิงก์ลง Google Sheet ไม่สำเร็จ:", j.sheet_error);
+      return j;
+    } catch(e){ return null; }
+  }
+
+  // ---------- โหลดข้อมูล + ภาษา ----------
+
+  // โหลดครั้งเดียวต่อภาษา: สาขา, พนักงาน, หัวข้อ, คำแปล (เก็บไว้ในเครื่องด้วย เปิดครั้งหน้าจะขึ้นทันที)
+  async function bootstrap(){
+    const cacheKey = "calendar_boot_" + lang;
+    const cached = lsGet(cacheKey);
+    if (cached){ try{ applyBoot(JSON.parse(cached)); } catch(e){} }
+    const j = await api({ action: "bootstrap", lang });
+    if (j && j.ok){
+      applyBoot(j);
+      lsSet(cacheKey, JSON.stringify({ branches: j.branches, topics: j.topics, dict: j.dict }));
+    }
+  }
+
+  function applyBoot(j){
+    branches = j.branches || [];
+    topics = j.topics || [];
+    dict = j.dict || {};
+    applyUiText();
+    renderBranchPicker();
+    renderLegend();
+    renderGrid();
+  }
+
+  function applyUiText(){
+    document.documentElement.lang = lang;
+    document.querySelectorAll("[data-t]").forEach(e => { e.textContent = t(e.dataset.t); });
+    document.querySelectorAll("[data-tp]").forEach(e => { e.placeholder = t(e.dataset.tp); });
+    document.getElementById("langSelect").value = lang;
+    if (PROJECT_REF.startsWith("YOUR_") || SUPABASE_KEY.startsWith("YOUR_")){
+      document.getElementById("subText").textContent = "⚠️ ยังไม่ได้ตั้งค่า Supabase: ใส่ PROJECT_REF และ SUPABASE_KEY ใน index.html";
+    }
+  }
+
+  async function setLang(next){
+    lang = LOCALE[next] ? next : "th";
+    lsSet("calendar_lang", lang);
+    await bootstrap();
+  }
+
+  // ---------- สาขา ----------
+
+  function renderBranchPicker(){
+    const fromUrl = new URLSearchParams(location.search).get("branch");
+    const wanted = [branchId, fromUrl, lsGet("calendar_branch")].find(id => id && branches.some(b => b.id === id));
+    const changed = (wanted || (branches[0] ? branches[0].id : "")) !== branchId;
+    branchId = wanted || (branches[0] ? branches[0].id : "");
+
+    const sel = document.getElementById("branchSelect");
+    sel.innerHTML = "";
+    branches.forEach(b => { const o = el("option", "", b.name); o.value = b.id; sel.appendChild(o); });
+    sel.value = branchId;
+    // มีสาขาเดียว ไม่ต้องโชว์ตัวเลือก แค่บอกชื่อสาขา
+    document.getElementById("branchBar").style.display = branches.length > 1 ? "flex" : "none";
+    const b = currentBranch();
+    document.getElementById("branchName").textContent = (branches.length === 1 && b) ? b.name : "";
+    if (changed) loadMonth();
+  }
+
+  function selectBranch(id){
+    branchId = id;
+    lsSet("calendar_branch", id);
+    const url = new URL(location.href);
+    url.searchParams.set("branch", id);
+    history.replaceState(null, "", url);
+    loadMonth();
+  }
+
+  // ---------- ปฏิทิน ----------
+
+  function monthTitle(){
+    const d = new Date(viewYear, viewMonth, 1);
+    try{
+      return new Intl.DateTimeFormat(LOCALE[lang], { month: "long", year: "numeric" }).format(d);
+    } catch(e){ return ymKey(viewYear, viewMonth); }
+  }
+
+  function weekdayNames(){
+    const names = [];
+    for (let i = 0; i < 7; i++){
+      const d = new Date(2023, 0, 1 + i); // 1 ม.ค. 2023 เป็นวันอาทิตย์
+      try{ names.push(new Intl.DateTimeFormat(LOCALE[lang], { weekday: "short" }).format(d)); }
+      catch(e){ names.push(["Su","Mo","Tu","We","Th","Fr","Sa"][i]); }
+    }
+    return names;
+  }
+
+  async function loadMonth(){
+    dayMap = {};
+    renderGrid();
+    if (!branchId) return;
+    const want = branchId + ymKey(viewYear, viewMonth);
+    const j = await api({ action: "schedule_month", branch: branchId, month: ymKey(viewYear, viewMonth) });
+    if (want !== branchId + ymKey(viewYear, viewMonth)) return; // เปลี่ยนเดือน/สาขาไปแล้ว
+    if (j && j.ok && Array.isArray(j.entries)){
+      j.entries.forEach(e => { (dayMap[e.date] = dayMap[e.date] || []).push(e); });
+    }
+    renderGrid();
+  }
+
+  function changeMonth(delta){
+    viewMonth += delta;
+    if (viewMonth < 0){ viewMonth = 11; viewYear--; }
+    if (viewMonth > 11){ viewMonth = 0; viewYear++; }
+    loadMonth();
+  }
+
+  function renderLegend(){
+    const box = document.getElementById("legend");
+    box.innerHTML = "";
+    topics.forEach(tp => {
+      const item = el("div", "legendItem");
+      const dot = el("span", "dot"); dot.style.background = tp.color;
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(" " + topicText(tp.id, "name")));
+      box.appendChild(item);
+    });
+  }
+
+  function personShort(name){
+    const p = ((currentBranch() || {}).staff || []).find(s => s.name === name);
+    return p ? p.short : name;
+  }
+
+  // รายการของวัน เรียงตามลำดับหัวข้อ (หัวข้อที่ลบแล้วไม่แสดง)
+  function entriesOf(key){
+    const list = dayMap[key] || [];
+    return topics.map(tp => ({ tp, e: list.find(e => e.topic_id === tp.id) })).filter(x => x.e);
+  }
+
+  function renderGrid(){
+    document.getElementById("monthLabel").textContent = monthTitle();
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+    weekdayNames().forEach(d => grid.appendChild(el("div", "dow", d)));
+
+    const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const now = new Date();
+    const todayStr = dateKey(now.getFullYear(), now.getMonth(), now.getDate());
+
+    for (let i = 0; i < firstDow; i++) grid.appendChild(el("div", "day empty"));
+
+    for (let d = 1; d <= daysInMonth; d++){
+      const key = dateKey(viewYear, viewMonth, d);
+      const cell = el("div", "day" + (key === todayStr ? " today" : ""));
+      cell.onclick = () => openView(key);
+      cell.appendChild(el("div", "dayNum", d));
+      const badges = el("div", "badges");
+      entriesOf(key).forEach(({ tp, e }) => {
+        const text = tp.kind === "person" ? personShort(e.person || "") : (topicText(tp.id, "short") || topicText(tp.id, "name"));
+        const b = el("span", "badge" + (tp.kind === "person" ? " person" : ""), text);
+        b.style.background = tp.color;
+        b.title = topicText(tp.id, "name") + (e.person ? ": " + e.person : "");
+        badges.appendChild(b);
+      });
+      cell.appendChild(badges);
+      grid.appendChild(cell);
+    }
+  }
+
+  function formatDate(key){
+    const [y, m, d] = key.split("-").map(Number);
+    try{
+      return new Intl.DateTimeFormat(LOCALE[lang], { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(y, m - 1, d));
+    } catch(e){ return key; }
+  }
+
+  // ---------- ดูรายละเอียดวัน ----------
+
+  function openView(key){
+    if (!branchId) return;
+    openDate = key;
+    document.getElementById("viewTitle").textContent = formatDate(key);
+    const list = document.getElementById("viewList");
+    list.innerHTML = "";
+    const items = entriesOf(key);
+    if (!items.length) list.appendChild(el("div", "msgEmpty", t("noItems")));
+    items.forEach(({ tp, e }) => {
+      const box = el("div", "msgItem");
+      box.style.borderLeftColor = tp.color;
+      box.appendChild(el("div", "msgName", topicText(tp.id, "name") + (e.person ? " — " + e.person : "")));
+      const msg = (topicText(tp.id, "message") || topicText(tp.id, "name")).split("{name}").join(e.person || "");
+      box.appendChild(el("div", "msgText", msg));
+      list.appendChild(box);
+    });
+    document.getElementById("viewOverlay").classList.add("show");
+  }
+
+  function closeView(){ document.getElementById("viewOverlay").classList.remove("show"); }
+
+  // ---------- แก้ไขวัน ----------
+
+  function openEdit(){
+    closeView();
+    const list = dayMap[openDate] || [];
+    const staff = (currentBranch() || {}).staff || [];
+    const b = currentBranch();
+    document.getElementById("editTitle").textContent = formatDate(openDate) + (b && branches.length > 1 ? " — " + b.name : "");
+    const box = document.getElementById("editRows");
+    box.innerHTML = "";
+    topics.forEach((tp, i) => {
+      const row = el("div", "row");
+      if (i === topics.length - 1) row.style.borderBottom = "none";
+      const label = el("label", "", topicText(tp.id, "name"));
+      row.appendChild(label);
+      const cur = list.find(e => e.topic_id === tp.id);
+      if (tp.kind === "person"){
+        const sel = el("select"); sel.dataset.topic = tp.id;
+        const opts = [{ name: "", label: t("none") }].concat(staff);
+        // คนที่ออกไปแล้วแต่ยังมีในข้อมูลเดิม ยังโชว์ไว้ ไม่ให้หายตอนกดบันทึก
+        if (cur && cur.person && !staff.some(s => s.name === cur.person)) opts.push({ name: cur.person, label: cur.person });
+        opts.forEach(p => { const o = el("option", "", p.label); o.value = p.name; sel.appendChild(o); });
+        sel.value = cur ? (cur.person || "") : "";
+        row.appendChild(sel);
+      } else {
+        const cb = el("input"); cb.type = "checkbox"; cb.dataset.topic = tp.id; cb.checked = !!cur;
+        row.appendChild(cb);
+      }
+      box.appendChild(row);
+    });
+    document.getElementById("adminPin").value = "";
+    setMsg("statusMsg", "");
+    document.getElementById("editOverlay").classList.add("show");
+  }
+
+  function closeEdit(){ document.getElementById("editOverlay").classList.remove("show"); }
+
+  async function saveDay(){
+    const pin = document.getElementById("adminPin").value.trim();
+    if (!pin){ setMsg("statusMsg", t("enterPin"), false); return; }
+    const entries = [];
+    document.querySelectorAll("#editRows [data-topic]").forEach(inp => {
+      if (inp.type === "checkbox"){ if (inp.checked) entries.push({ topic_id: inp.dataset.topic }); }
+      else if (inp.value) entries.push({ topic_id: inp.dataset.topic, person: inp.value });
+    });
+    setMsg("statusMsg", t("saving"));
+    const j = await api({ action: "save_schedule_day", branch: branchId, date: openDate, entries, admin_pin: pin });
+    if (!j || !j.ok){ setMsg("statusMsg", errText(j), false); return; }
+    closeEdit();
+    loadMonth();
+  }
+
+  // ---------- ตั้งค่า (รหัสแอดมินกลาง) ----------
+
+  function openSettings(){
+    settingsPin = "";
+    document.getElementById("setPin").value = "";
+    document.getElementById("setLock").style.display = "";
+    document.getElementById("setBody").style.display = "none";
+    setMsg("setStatus", "");
+    document.getElementById("settingsOverlay").classList.add("show");
+  }
+
+  function closeSettings(){
+    document.getElementById("settingsOverlay").classList.remove("show");
+    settingsPin = "";
+  }
+
+  async function unlockSettings(){
+    const pin = document.getElementById("setPin").value.trim();
+    const j = await api({ action: "check_admin_pin", admin_pin: pin });
+    if (!j || !j.ok){ alert(j ? "รหัสแอดมินกลางไม่ถูกต้อง" : "เชื่อมต่อไม่สำเร็จ"); return; }
+    settingsPin = pin;
+    document.getElementById("setLock").style.display = "none";
+    document.getElementById("setBody").style.display = "";
+    renderTopicPicker();
+    renderSettingsBranches(branchId);
+    loadUiRows();
+  }
+
+  async function reloadAll(){
+    lsSet("calendar_boot_" + lang, "");
+    await bootstrap();
+  }
+
+  // ----- หัวข้อ -----
+
+  let topicEdited = {};   // { name: Set(langs), short: Set, message: Set } ภาษาที่แก้เอง
+
+  async function renderTopicPicker(selectId){
+    const sel = document.getElementById("setTopic");
+    sel.innerHTML = "";
+    topics.forEach(tp => { const o = el("option", "", topicText(tp.id, "name") || tp.id); o.value = tp.id; sel.appendChild(o); });
+    if (selectId) sel.value = selectId;
+    if (topics.length) await loadTopicForm(); else newTopicForm();
+  }
+
+  function renderTopicLangs(texts){
+    // texts: { name: {th,en,...,edited:[]}, short: {...}, message: {...} }
+    topicEdited = { name: new Set(), short: new Set(), message: new Set() };
+    const box = document.getElementById("tpLangs");
+    box.innerHTML = "";
+    LANGS.forEach(l => {
+      const grid = el("div", "langGrid");
+      grid.appendChild(el("div", "lg", LANG_LABEL[l]));
+      const cell = el("div", "cell");
+      [["name", "input", "ชื่อหัวข้อ"], ["short", "input", "คำสั้น"], ["message", "textarea", "ข้อความถึงทีมงาน"]].forEach(([f, tag, ph]) => {
+        const inp = el(tag, "field");
+        inp.dataset.field = f; inp.dataset.lang = l; inp.placeholder = ph + " (" + LANG_LABEL[l] + ")";
+        const src = (texts && texts[f]) || {};
+        inp.value = src[l] || "";
+        if ((src.edited || []).includes(l)){ topicEdited[f].add(l); inp.classList.add("edited"); }
+        inp.oninput = () => { topicEdited[f].add(l); inp.classList.add("edited"); };
+        cell.appendChild(inp);
+      });
+      grid.appendChild(cell);
+      box.appendChild(grid);
+    });
+  }
+
+  async function loadTopicForm(){
+    const id = document.getElementById("setTopic").value;
+    const tp = topics.find(x => x.id === id);
+    if (!tp) return newTopicForm();
+    document.getElementById("tpKind").value = tp.kind;
+    document.getElementById("tpColor").value = tp.color;
+    document.getElementById("btnDeleteTopic").style.display = "";
+    setMsg("setStatus", "กำลังโหลด...");
+    const j = await api({ action: "get_topic_texts", admin_pin: settingsPin, id });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    document.getElementById("tpName").value = j.texts.name.th || "";
+    document.getElementById("tpShort").value = j.texts.short.th || "";
+    document.getElementById("tpMessage").value = j.texts.message.th || "";
+    renderTopicLangs(j.texts);
+    setMsg("setStatus", "");
+  }
+
+  function newTopicForm(){
+    document.getElementById("setTopic").value = "";
+    ["tpName", "tpShort", "tpMessage"].forEach(id => { document.getElementById(id).value = ""; });
+    document.getElementById("tpKind").value = "person";
+    document.getElementById("tpColor").value = "#22c55e";
+    document.getElementById("btnDeleteTopic").style.display = "none";
+    renderTopicLangs({});
+  }
+
+  function topicThai(){
+    return {
+      name: document.getElementById("tpName").value.trim(),
+      short: document.getElementById("tpShort").value.trim(),
+      message: document.getElementById("tpMessage").value.trim()
+    };
+  }
+
+  async function aiTranslateTopic(){
+    const th = topicThai();
+    if (!th.name){ setMsg("setStatus", "กรุณาใส่ชื่อหัวข้อก่อน", false); return; }
+    setMsg("setStatus", "กำลังแปล...");
+    const j = await api({ action: "ai_translate", admin_pin: settingsPin, texts: th });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    // เติมเฉพาะช่องที่ไม่ได้แก้เอง
+    document.querySelectorAll("#tpLangs [data-field]").forEach(inp => {
+      const f = inp.dataset.field, l = inp.dataset.lang;
+      if (topicEdited[f].has(l)) return;
+      inp.value = (j.translations[f] && j.translations[f][l]) || "";
+    });
+    setMsg("setStatus", "แปลแล้ว เช็ค/แก้ได้ แล้วกด \"บันทึกหัวข้อ\"", true);
+  }
+
+  async function saveTopic(){
+    const th = topicThai();
+    if (!th.name){ setMsg("setStatus", "กรุณาใส่ชื่อหัวข้อ", false); return; }
+    const texts = { name: { th: th.name }, short: { th: th.short }, message: { th: th.message } };
+    document.querySelectorAll("#tpLangs [data-field]").forEach(inp => { texts[inp.dataset.field][inp.dataset.lang] = inp.value.trim(); });
+    const edited = {};
+    Object.keys(topicEdited).forEach(f => { edited[f] = Array.from(topicEdited[f]); });
+    setMsg("setStatus", "กำลังบันทึก...");
+    const j = await api({
+      action: "save_topic", admin_pin: settingsPin,
+      id: document.getElementById("setTopic").value,
+      kind: document.getElementById("tpKind").value,
+      color: document.getElementById("tpColor").value,
+      texts, edited
+    });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    await reloadAll();
+    await renderTopicPicker(j.id);
+    setMsg("setStatus", "บันทึกหัวข้อแล้ว", true);
+  }
+
+  async function deleteTopic(){
+    const id = document.getElementById("setTopic").value;
+    if (!id || !confirm("ลบหัวข้อ \"" + (topicText(id, "name") || id) + "\"?\n(ข้อมูลเก่าในปฏิทินจะถูกซ่อน)")) return;
+    const j = await api({ action: "delete_topic", admin_pin: settingsPin, id });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    await reloadAll();
+    await renderTopicPicker();
+    setMsg("setStatus", "ลบหัวข้อแล้ว", true);
+  }
+
+  // ----- ภาษาบนหน้าเว็บ -----
+
+  let uiEdited = new Set();
+
+  async function translatePage(all){
+    if (all && !confirm("แปลข้อความบนหน้าเว็บใหม่ทั้งหมด? (ช่องที่แก้เองจะไม่ถูกทับ)")) return;
+    const texts = {};
+    Object.keys(UI_TH).forEach(k => { texts["ui.cal." + k] = UI_TH[k]; });
+    setMsg("setStatus", "กำลังแปล...");
+    const j = await api({ action: "translate_page", admin_pin: settingsPin, texts, all, include_topics: true });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    await reloadAll();
+    loadUiRows();
+    await renderTopicPicker(document.getElementById("setTopic").value);
+    setMsg("setStatus", "แปลแล้ว " + j.translated + " ข้อความ เช็ค/แก้ได้ด้านล่าง และในหัวข้อแต่ละอัน", true);
+  }
+
+  async function loadUiRows(){
+    const l = document.getElementById("uiLang").value;
+    const box = document.getElementById("uiRows");
+    box.innerHTML = "";
+    uiEdited = new Set();
+    const j = await api({ action: "list_translations", admin_pin: settingsPin, prefix: "ui.cal." });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    const byKey = {};
+    (j.rows || []).forEach(r => { byKey[r.key] = r; });
+    Object.keys(UI_TH).forEach(k => {
+      const key = "ui.cal." + k, r = byKey[key] || {};
+      const grid = el("div", "langGrid");
+      grid.appendChild(el("div", "lg", UI_TH[k]));
+      const inp = el("input", "field");
+      inp.value = r[l] || ""; inp.placeholder = "(ยังไม่แปล)"; inp.dataset.key = key;
+      if ((r.edited || []).includes(l)) inp.classList.add("edited");
+      inp.oninput = () => { uiEdited.add(key); inp.classList.add("edited"); };
+      const cell = el("div", "cell"); cell.appendChild(inp);
+      grid.appendChild(cell);
+      box.appendChild(grid);
+    });
+  }
+
+  async function saveUiRows(){
+    const l = document.getElementById("uiLang").value;
+    const rows = [];
+    document.querySelectorAll("#uiRows [data-key]").forEach(inp => {
+      if (!uiEdited.has(inp.dataset.key)) return;
+      rows.push({ key: inp.dataset.key, [l]: inp.value.trim(), edited: [l] });
+    });
+    if (!rows.length){ setMsg("setStatus", "ยังไม่มีช่องที่แก้", false); return; }
+    const j = await api({ action: "save_translations", admin_pin: settingsPin, rows });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    uiEdited = new Set();
+    await reloadAll();
+    setMsg("setStatus", "บันทึกคำแปลแล้ว", true);
+  }
+
+  // ----- สาขา -----
+
+  function renderSettingsBranches(selectId){
+    const sel = document.getElementById("setBranch");
+    sel.innerHTML = "";
+    branches.forEach(b => { const o = el("option", "", b.name); o.value = b.id; sel.appendChild(o); });
+    if (selectId && branches.some(b => b.id === selectId)) sel.value = selectId;
+    if (branches.length) fillBranchForm(); else newBranchForm();
+  }
+
+  function branchLink(id){
+    const url = new URL(location.href);
+    url.search = "";
+    url.searchParams.set("branch", id);
+    return url.toString();
+  }
+
+  function fillBranchForm(){
+    const b = branches.find(x => x.id === document.getElementById("setBranch").value);
+    if (!b) return newBranchForm();
+    document.getElementById("setBranchName").value = b.name;
+    document.getElementById("setBranchId").value = b.id;
+    document.getElementById("setBranchIdRow").style.display = "none";
+    document.getElementById("setBranchPin").value = "";
+    document.getElementById("setBranchLink").textContent = "ลิงก์ของสาขานี้: " + branchLink(b.id) + (b.sync_sheet ? " (ซิงก์กับ Google Sheet)" : "");
+    document.getElementById("btnDeleteBranch").style.display = branches.length > 1 ? "" : "none";
+    renderStaffRows(b.staff || []);
+  }
+
+  function newBranchForm(){
+    document.getElementById("setBranch").value = "";
+    document.getElementById("setBranchName").value = "";
+    document.getElementById("setBranchId").value = "";
+    document.getElementById("setBranchIdRow").style.display = "";
+    document.getElementById("setBranchPin").value = "";
+    document.getElementById("setBranchLink").textContent = "สาขาใหม่: กดบันทึกสาขาก่อน แล้วค่อยเพิ่มรายชื่อพนักงาน";
+    document.getElementById("btnDeleteBranch").style.display = "none";
+    renderStaffRows([]);
+  }
+
+  async function saveBranch(){
+    const isNew = !document.getElementById("setBranch").value;
+    const payload = {
+      action: "save_branch",
+      admin_pin: settingsPin,
+      id: document.getElementById("setBranchId").value.trim(),
+      name: document.getElementById("setBranchName").value.trim(),
+      branch_pin: document.getElementById("setBranchPin").value.trim()
+    };
+    if (isNew && !payload.id){ setMsg("setStatus", "กรุณาใส่รหัสสาขา (ภาษาอังกฤษ)", false); return; }
+    if (isNew && branches.some(b => b.id === payload.id.toLowerCase())){ setMsg("setStatus", "รหัสสาขานี้มีอยู่แล้ว", false); return; }
+    setMsg("setStatus", "กำลังบันทึก...");
+    const j = await api(payload);
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    await reloadAll();
+    renderSettingsBranches(j.id);
+    setMsg("setStatus", "บันทึกสาขาแล้ว", true);
+  }
+
+  async function deleteBranch(){
+    const b = branches.find(x => x.id === document.getElementById("setBranch").value);
+    if (!b) return;
+    if (!confirm("ลบสาขา \"" + b.name + "\" และข้อมูลปฏิทินทั้งหมดของสาขานี้?\nลบแล้วกู้คืนไม่ได้")) return;
+    const j = await api({ action: "delete_branch", admin_pin: settingsPin, id: b.id });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    if (branchId === b.id) branchId = "";
+    await reloadAll();
+    renderSettingsBranches(branchId);
+    setMsg("setStatus", "ลบสาขาแล้ว", true);
+  }
+
+  function renderStaffRows(list){
+    document.getElementById("staffRows").innerHTML = "";
+    list.forEach(p => addStaffRow(p));
+  }
+
+  function addStaffRow(p){
+    p = p || {};
+    const row = el("div", "fieldRow staffRow");
+    const mk = (cls, ph, val) => { const i = el("input", cls); i.placeholder = ph; i.value = val || ""; row.appendChild(i); };
+    mk("field sm", "ชื่อ", p.name);
+    mk("field", "ชื่อเต็ม", p.label && p.label !== p.name ? p.label : "");
+    mk("field sm", "ชื่อสั้น", p.short && p.short !== p.name ? p.short : "");
+    const del = el("button", "smallBtn red", "ลบ");
+    del.onclick = () => row.remove();
+    row.appendChild(del);
+    document.getElementById("staffRows").appendChild(row);
+  }
+
+  async function saveStaff(){
+    const id = document.getElementById("setBranch").value;
+    if (!id){ setMsg("setStatus", "กดบันทึกสาขาก่อน แล้วค่อยเพิ่มรายชื่อ", false); return; }
+    const staff = Array.from(document.querySelectorAll("#staffRows .staffRow")).map(row => {
+      const [name, label, short] = Array.from(row.querySelectorAll("input")).map(i => i.value.trim());
+      return { name, label, short };
+    }).filter(s => s.name);
+    setMsg("setStatus", "กำลังบันทึก...");
+    const j = await api({ action: "save_staff", admin_pin: settingsPin, branch_id: id, staff });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    await reloadAll();
+    renderSettingsBranches(id);
+    setMsg("setStatus", "บันทึกรายชื่อแล้ว", true);
+  }
+
+  async function changeAdminPin(){
+    const next = document.getElementById("setNewPin").value.trim();
+    const j = await api({ action: "change_admin_pin", admin_pin: settingsPin, new_pin: next });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    settingsPin = next;
+    document.getElementById("setNewPin").value = "";
+    setMsg("setStatus", "เปลี่ยนรหัสแอดมินกลางแล้ว", true);
+  }
+
+  (async function init(){
+    const now = new Date();
+    viewYear = now.getFullYear();
+    viewMonth = now.getMonth();
+    const saved = lsGet("calendar_lang");
+    lang = LOCALE[saved] ? saved : "th";
+    applyUiText();
+    renderGrid();
+    await bootstrap(); // เลือกสาขาแล้วจะโหลดเดือนนี้ให้เอง
+  })();
+</script>
+</body>
+</html>
