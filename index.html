@@ -805,9 +805,18 @@
     if (all && !confirm("แปลข้อความบนหน้าเว็บใหม่ทั้งหมด? (ช่องที่แก้เองจะไม่ถูกทับ)")) return;
     const texts = {};
     Object.keys(UI_TH).forEach(k => { texts["ui.cal." + k] = UI_TH[k]; });
-    setMsg("setStatus", "กำลังแปล...");
-    const j = await api({ action: "translate_page", admin_pin: settingsPin, texts, all, include_topics: true });
-    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    // แปลทีละชุด (ชุดละ 20 ข้อความ) จนครบ หลุดกลางทางกดใหม่ได้ ทำต่อจากที่ค้าง
+    const skip = [];
+    let total = null, j = null;
+    for (let round = 0; round < 30; round++){
+      setMsg("setStatus", total === null ? "กำลังแปล…" : "กำลังแปล… " + skip.length + "/" + total);
+      j = await api({ action: "translate_page", admin_pin: settingsPin, texts, all, include_topics: true, skip });
+      if (!j || !j.ok){ setMsg("setStatus", errText(j) + (skip.length ? " (แปลไปแล้ว " + skip.length + " ข้อความ กดอีกครั้งเพื่อทำต่อ)" : ""), false); return; }
+      skip.push(...(j.done || []));
+      if (total === null) total = (j.translated || 0) + (j.remaining || 0);
+      if (!j.remaining || !j.translated) break;
+    }
+    j.translated = skip.length;
     await reloadAll();
     loadUiRows();
     await renderTopicPicker(document.getElementById("setTopic").value);
