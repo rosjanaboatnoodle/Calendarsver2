@@ -2,9 +2,16 @@
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="apple-touch-icon" href="calendar-icon-180.png">
-<link rel="icon" type="image/png" sizes="32x32" href="calendar-favicon-32.png">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- เพิ่มไปหน้าจอโฮมแล้วเปิดเต็มจอ ไม่มีแถบ Safari -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ปฏิทินงาน">
+<meta name="theme-color" content="#5b73ff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <title>ปฏิทินตารางงาน — รสจนา</title>
 <style>
   :root{
@@ -22,7 +29,7 @@
     min-height:100vh;
     color:#111;
   }
-  .wrap{ max-width: 760px; margin:0 auto; padding: 32px 16px 60px; }
+  .wrap{ max-width: 760px; margin:0 auto; padding: calc(32px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(60px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); }
   .panel{ background: rgba(255,255,255,.14); border-radius: 22px; padding: 18px 18px 24px; backdrop-filter: blur(2px); }
   h1{ margin: 4px 0 4px; font-size: 22px; color:#fff; }
   .sub{ color: rgba(255,255,255,.85); font-size: 13px; font-weight:700; margin-bottom: 14px; }
