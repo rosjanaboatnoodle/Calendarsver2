@@ -138,6 +138,17 @@
     </div>
     <div class="sub" id="subText" data-t="sub">กดที่วันเพื่อดูรายละเอียด</div>
 
+    <!-- เข้าสู่ระบบ: ปฏิทินเป็นเครื่องมือของแอดมิน (พนักงานดูตารางในแอปตอกบัตร) -->
+    <div class="monthBar" id="loginBox" style="display:none; flex-direction:column; align-items:stretch; gap:8px;">
+      <div class="monthLabel" id="loginTitle">🔒 ใส่รหัสแอดมินเพื่อเปิดปฏิทิน</div>
+      <div style="display:flex; gap:8px;">
+        <input id="loginPin" type="password" inputmode="numeric" placeholder="รหัสแอดมินกลาง" style="flex:1; min-width:0; padding:10px; border-radius:10px; border:2px solid #c7d2fe; font-size:15px;">
+        <button onclick="doLogin()">เข้าสู่ระบบ</button>
+      </div>
+      <div class="statusMsg" id="loginStatus"></div>
+      <div style="font-size:12px; color:#6b7280; font-weight:700;">หัวหน้าสาขา: เปิดจากลิงก์ปฏิทินของสาขาที่แอดมินส่งให้ แล้วใช้รหัสสาขาตอนแก้ไขวัน</div>
+    </div>
+
     <div class="branchBar" id="branchBar" style="display:none;">
       <label for="branchSelect" data-t="branch">สาขา</label>
       <select id="branchSelect" onchange="selectBranch(this.value)"></select>
@@ -324,6 +335,12 @@
   let dayMap = {};        // { "2026-11-05": [{ topic_id, person }] }
   let openDate = "";
   let settingsPin = "";
+  // ใครเปิดอยู่: แอดมิน (รหัสกลาง จำไว้เฉพาะแท็บนี้) เห็นทุกสาขา · ลิงก์สาขา (?b=...) เห็นสาขาเดียว
+  let ADMIN = "";
+  let KEY = "";
+  function auth(){ return ADMIN ? { admin_pin: ADMIN } : (KEY ? { key: KEY } : {}); }
+  function ssGet(k){ try{ return sessionStorage.getItem(k) || ""; } catch(e){ return ""; } }
+  function ssSet(k, v){ try{ sessionStorage.setItem(k, v); } catch(e){} }
 
   const ERRORS = {
     pin_too_short: "รหัสต้องมีอย่างน้อย 4 ตัว",
@@ -342,6 +359,9 @@
   function errText(j){
     if (!j) return t("connectFail");
     if (j.error === "wrong_admin_pin") return t("wrongPin");
+    if (j.error === "too_many_tries") return "ใส่รหัสผิดหลายครั้ง ระบบล็อกไว้ อีก " + (j.minutes || 15) + " นาทีลองใหม่";
+    if (j.error === "need_login") return "กรุณาเข้าสู่ระบบ";
+    if (j.error === "bad_link") return "ลิงก์นี้ใช้ไม่ได้แล้ว";
     return ERRORS[j.error] || ("ไม่สำเร็จ: " + (j.error || "unknown"));
   }
   function setMsg(id, text, ok){ const el = document.getElementById(id); el.textContent = text; el.style.color = ok ? "#0f9b6b" : (ok === false ? "#dc2626" : "#374151"); }
@@ -366,15 +386,40 @@
   // ---------- โหลดข้อมูล + ภาษา ----------
 
   // โหลดครั้งเดียวต่อภาษา: สาขา, พนักงาน, หัวข้อ, คำแปล (เก็บไว้ในเครื่องด้วย เปิดครั้งหน้าจะขึ้นทันที)
+  // เก็บไว้ในเครื่องเฉพาะตอนเปิดด้วยลิงก์สาขา (ข้อมูลทุกสาขาของแอดมินไม่เก็บ)
   async function bootstrap(){
-    const cacheKey = "calendar_boot_" + lang;
-    const cached = lsGet(cacheKey);
+    const cacheKey = "calendar_boot_" + lang + "_" + KEY;
+    const cached = (!ADMIN && KEY) ? lsGet(cacheKey) : null;
     if (cached){ try{ applyBoot(JSON.parse(cached)); } catch(e){} }
-    const j = await api({ action: "bootstrap", lang });
-    if (j && j.ok){
-      applyBoot(j);
-      lsSet(cacheKey, JSON.stringify({ branches: j.branches, topics: j.topics, dict: j.dict }));
+    const j = await api(Object.assign({ action: "bootstrap", lang }, auth()));
+    if (j && !j.ok && ADMIN){
+      // รหัสที่จำไว้ใช้ไม่ได้แล้ว (เปลี่ยนรหัส/ถูกล็อก) ให้เข้าสู่ระบบใหม่
+      ADMIN = ""; ssSet("calendar_admin_pin", "");
+      showLogin(errText(j));
+      return;
     }
+    if (j && j.ok){
+      if (j.bad_link){ KEY = ""; lsSet("calendar_key", ""); lsSet(cacheKey, ""); }
+      applyBoot(j);
+      if (j.need_login || j.bad_link) showLogin(j.bad_link ? "ลิงก์นี้ใช้ไม่ได้แล้ว ขอลิงก์ใหม่จากแอดมิน หรือใส่รหัสแอดมิน" : "");
+      else hideLogin();
+      if (!ADMIN && KEY && !j.bad_link) lsSet(cacheKey, JSON.stringify({ branches: j.branches, topics: j.topics, dict: j.dict }));
+    }
+  }
+
+  function showLogin(msg){
+    document.getElementById("loginBox").style.display = "flex";
+    setMsg("loginStatus", msg || "", msg ? false : undefined);
+  }
+  function hideLogin(){ document.getElementById("loginBox").style.display = "none"; }
+
+  async function doLogin(){
+    const pin = document.getElementById("loginPin").value.trim();
+    const j = await api({ action: "check_admin_pin", admin_pin: pin });
+    if (!j || !j.ok){ setMsg("loginStatus", errText(j), false); return; }
+    ADMIN = pin; ssSet("calendar_admin_pin", pin);
+    document.getElementById("loginPin").value = "";
+    await bootstrap();
   }
 
   function applyBoot(j){
@@ -406,8 +451,7 @@
   // ---------- สาขา ----------
 
   function renderBranchPicker(){
-    const fromUrl = new URLSearchParams(location.search).get("branch");
-    const wanted = [branchId, fromUrl, lsGet("calendar_branch")].find(id => id && branches.some(b => b.id === id));
+    const wanted = [branchId, lsGet("calendar_branch")].find(id => id && branches.some(b => b.id === id));
     const changed = (wanted || (branches[0] ? branches[0].id : "")) !== branchId;
     branchId = wanted || (branches[0] ? branches[0].id : "");
 
@@ -425,9 +469,6 @@
   function selectBranch(id){
     branchId = id;
     lsSet("calendar_branch", id);
-    const url = new URL(location.href);
-    url.searchParams.set("branch", id);
-    history.replaceState(null, "", url);
     loadMonth();
   }
 
@@ -455,7 +496,7 @@
     renderGrid();
     if (!branchId) return;
     const want = branchId + ymKey(viewYear, viewMonth);
-    const j = await api({ action: "schedule_month", branch: branchId, month: ymKey(viewYear, viewMonth) });
+    const j = await api(Object.assign({ action: "schedule_month", branch: branchId, month: ymKey(viewYear, viewMonth) }, auth()));
     if (want !== branchId + ymKey(viewYear, viewMonth)) return; // เปลี่ยนเดือน/สาขาไปแล้ว
     if (j && j.ok && Array.isArray(j.entries)){
       j.entries.forEach(e => { (dayMap[e.date] = dayMap[e.date] || []).push(e); });
@@ -615,6 +656,7 @@
     document.getElementById("setBody").style.display = "none";
     setMsg("setStatus", "");
     document.getElementById("settingsOverlay").classList.add("show");
+    if (ADMIN){ document.getElementById("setPin").value = ADMIN; unlockSettings(); }
   }
 
   function closeSettings(){
@@ -625,8 +667,9 @@
   async function unlockSettings(){
     const pin = document.getElementById("setPin").value.trim();
     const j = await api({ action: "check_admin_pin", admin_pin: pin });
-    if (!j || !j.ok){ alert(j ? "รหัสแอดมินกลางไม่ถูกต้อง" : "เชื่อมต่อไม่สำเร็จ"); return; }
+    if (!j || !j.ok){ alert(errText(j)); return; }
     settingsPin = pin;
+    if (!ADMIN){ ADMIN = pin; ssSet("calendar_admin_pin", pin); await bootstrap(); }
     document.getElementById("setLock").style.display = "none";
     document.getElementById("setBody").style.display = "";
     renderTopicPicker();
@@ -635,7 +678,7 @@
   }
 
   async function reloadAll(){
-    lsSet("calendar_boot_" + lang, "");
+    lsSet("calendar_boot_" + lang + "_" + KEY, "");
     await bootstrap();
   }
 
@@ -819,11 +862,21 @@
     if (branches.length) fillBranchForm(); else newBranchForm();
   }
 
-  function branchLink(id){
+  function branchLink(b){
     const url = new URL(location.href);
     url.search = "";
-    url.searchParams.set("branch", id);
+    url.searchParams.set("b", b.access_key || "");
     return url.toString();
+  }
+
+  async function rotateBranchLink(){
+    const b = branches.find(x => x.id === document.getElementById("setBranch").value);
+    if (!b || !confirm("เปลี่ยนลิงก์ของสาขา \"" + b.name + "\"?\n\nลิงก์เก่าใช้ไม่ได้ทันที ทั้งลิงก์ปฏิทินและลิงก์ตอกบัตรของสาขานี้ (ใช้รหัสเดียวกัน)")) return;
+    const j = await api({ action: "rotate_branch_key", admin_pin: settingsPin, branch_id: b.id });
+    if (!j || !j.ok){ setMsg("setStatus", errText(j), false); return; }
+    await reloadAll();
+    renderSettingsBranches(b.id);
+    setMsg("setStatus", "เปลี่ยนลิงก์แล้ว ส่งลิงก์ใหม่ให้หัวหน้าสาขา และลิงก์ตอกบัตรใหม่ให้พนักงาน", true);
   }
 
   function fillBranchForm(){
@@ -833,7 +886,10 @@
     document.getElementById("setBranchId").value = b.id;
     document.getElementById("setBranchIdRow").style.display = "none";
     document.getElementById("setBranchPin").value = "";
-    document.getElementById("setBranchLink").textContent = "ลิงก์ของสาขานี้: " + branchLink(b.id) + (b.sync_sheet ? " (ซิงก์กับ Google Sheet)" : "");
+    const linkBox = document.getElementById("setBranchLink");
+    linkBox.textContent = "ลิงก์ปฏิทินของสาขานี้ (ให้หัวหน้าสาขา): " + branchLink(b) + (b.sync_sheet ? " · ซิงก์กับ Google Sheet" : "") + " ";
+    const rot = el("button", "smallBtn", "เปลี่ยนลิงก์"); rot.onclick = rotateBranchLink;
+    linkBox.appendChild(rot);
     document.getElementById("btnDeleteBranch").style.display = branches.length > 1 ? "" : "none";
     renderStaffRows(b.staff || []);
   }
@@ -926,6 +982,10 @@
     const now = new Date();
     viewYear = now.getFullYear();
     viewMonth = now.getMonth();
+    const fromUrl = new URLSearchParams(location.search).get("b");
+    if (fromUrl && /^[a-f0-9]{8,64}$/i.test(fromUrl)){ KEY = fromUrl.toLowerCase(); lsSet("calendar_key", KEY); }
+    else KEY = lsGet("calendar_key") || "";
+    ADMIN = ssGet("calendar_admin_pin");
     const saved = lsGet("calendar_lang");
     lang = LOCALE[saved] ? saved : "th";
     applyUiText();

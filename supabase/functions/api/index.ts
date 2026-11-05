@@ -14,6 +14,7 @@
 //
 // Every request is a POST with a JSON body: { action: "...", ...params }.
 // Every response is JSON with at least an `ok` boolean.
+// Database: run supabase/migrations/0001_schedule.sql then 0002_security.sql.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -70,6 +71,81 @@ const ADMIN_PIN_KEY = "admin_pin_hash";
 async function checkAdminPin(pin: string): Promise<boolean> {
   if (!pin) return false;
   return checkPassword(await getSetting<string | null>(ADMIN_PIN_KEY, null), pin);
+}
+
+// ---------- Wrong-PIN lockout (same rules and table as the time clock) ----------
+const LOCK_MAX_TRIES = 5;
+const LOCK_MINUTES_ADMIN = 30;
+const LOCK_MINUTES_OTHER = 15;
+
+async function attempt(key: string, check: () => Promise<boolean>): Promise<"ok" | "wrong" | { locked: number }> {
+  const { data: row } = await supabase.from("pin_attempts").select("*").eq("key", key).maybeSingle();
+  const now = Date.now();
+  if (row?.locked_until && Date.parse(row.locked_until) > now) {
+    return { locked: Math.ceil((Date.parse(row.locked_until) - now) / 60000) };
+  }
+  if (await check()) {
+    if (row && (row.fails || row.locked_until)) {
+      await supabase.from("pin_attempts").update({ fails: 0, locked_until: null, updated_at: new Date().toISOString() }).eq("key", key);
+    }
+    return "ok";
+  }
+  const fails = (row?.fails ?? 0) + 1;
+  const minutes = key === "admin" ? LOCK_MINUTES_ADMIN : LOCK_MINUTES_OTHER;
+  const lock = fails >= LOCK_MAX_TRIES;
+  await supabase.from("pin_attempts").upsert({
+    key, fails: lock ? 0 : fails, updated_at: new Date().toISOString(),
+    locked_until: lock ? new Date(now + minutes * 60000).toISOString() : null,
+  });
+  if (lock) {
+    await logAdmin("pin_lockout", { key, minutes });
+    return { locked: minutes };
+  }
+  return "wrong";
+}
+
+function lockedResponse(r: "ok" | "wrong" | { locked: number }, wrongError = "wrong_admin_pin"): Response | null {
+  if (r === "ok") return null;
+  if (r === "wrong") return json({ ok: false, error: wrongError });
+  return json({ ok: false, error: "too_many_tries", minutes: r.locked });
+}
+
+// For admin actions: null = allowed, otherwise the error response to send back.
+async function adminGate(p: Record<string, unknown>): Promise<Response | null> {
+  const pin = String(p.admin_pin ?? "");
+  if (!pin) return json({ ok: false, error: "wrong_admin_pin" });
+  return lockedResponse(await attempt("admin", () => checkAdminPin(pin)));
+}
+
+// ---------- Branch links (?b=...) ----------
+function newAccessKey(): string {
+  return [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function branchFromKey(p: Record<string, unknown>): Promise<{ id: string } | null> {
+  const key = String(p.key ?? "").trim();
+  if (!/^[a-f0-9]{8,64}$/i.test(key)) return null;
+  const { data } = await supabase.from("branches").select("id").eq("access_key", key.toLowerCase()).maybeSingle();
+  return data ?? null;
+}
+
+async function ensureAccessKeys() {
+  const { data } = await supabase.from("branches").select("id, access_key");
+  for (const b of data ?? []) {
+    if (!b.access_key) await supabase.from("branches").update({ access_key: newAccessKey() }).eq("id", b.id);
+  }
+}
+
+// Who may look: the admin (every branch) or someone with a branch link (that branch only).
+// Returns the branch ids allowed ("*" = all), or an error response.
+async function viewScope(p: Record<string, unknown>): Promise<{ all: boolean; branch: string | null } | Response> {
+  if (p.admin_pin) {
+    const g = await adminGate(p);
+    return g ?? { all: true, branch: null };
+  }
+  const b = await branchFromKey(p);
+  if (b) return { all: false, branch: b.id };
+  return json({ ok: false, error: p.key ? "bad_link" : "need_login" });
 }
 
 function bangkokToday(): string {
@@ -280,7 +356,7 @@ ${JSON.stringify(chunk)}`;
 // Admin: AI suggestions only, nothing saved. The page shows them in editable boxes first.
 // texts: { key: thai }
 async function handleAiTranslate(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const texts = (p.texts && typeof p.texts === "object") ? p.texts as Record<string, unknown> : {};
   const clean = Object.fromEntries(Object.entries(texts).map(([k, v]) => [k, String(v ?? "")]));
   if (Object.keys(clean).length > 200) return json({ ok: false, error: "too_many_texts" });
@@ -293,7 +369,7 @@ async function handleAiTranslate(p: Record<string, unknown>) {
 
 // Admin: list rows to review/edit (e.g. prefix "ui.cal.").
 async function handleListTranslations(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   try {
     const rows = await getTranslations(undefined, String(p.prefix ?? ""));
     rows.sort((a, b) => a.key.localeCompare(b.key));
@@ -326,7 +402,7 @@ async function saveTranslationRows(rows: Array<Record<string, unknown>>) {
 }
 
 async function handleSaveTranslations(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   try {
     const rows = Array.isArray(p.rows) ? p.rows as Array<Record<string, unknown>> : [];
     await saveTranslationRows(rows);
@@ -341,7 +417,7 @@ async function handleSaveTranslations(p: Record<string, unknown>) {
 // with AI — skipping languages edited by hand, and (unless `all`) ones that already have text.
 // texts: { key: thai } as written in the page source. include_topics: also every topic text.
 async function handleTranslatePage(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const texts: Record<string, unknown> = { ...((p.texts && typeof p.texts === "object") ? p.texts as Record<string, unknown> : {}) };
   const all = !!p.all;
   try {
@@ -395,23 +471,40 @@ async function getBranch(id: string): Promise<Branch | null> {
   return (data as Branch) ?? null;
 }
 
-async function canEditBranch(branch: Branch, pin: string): Promise<boolean> {
-  if (await checkAdminPin(pin)) return true;
-  return !!pin && checkPassword(branch.admin_pin_hash, pin);
+// Central PIN or this branch's PIN. Wrong tries are counted per branch (5 = locked 15 minutes).
+async function branchEditGate(branch: Branch, pin: string): Promise<Response | null> {
+  if (!pin) return json({ ok: false, error: "wrong_admin_pin" });
+  return lockedResponse(await attempt(`branch:${branch.id}`, async () =>
+    (await checkAdminPin(pin)) || checkPassword(branch.admin_pin_hash, pin)));
 }
 
 function cleanId(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
 
-// Public, one request when a page opens: branches + staff, calendar topics, and every text in
-// `lang` (page texts with `prefix`, default "ui.cal.", plus topic texts).
+// One request when the page opens: branches + staff, calendar topics, and every text in `lang`
+// (page texts with `prefix`, default "ui.cal.", plus topic texts).
+// admin_pin = every branch (with their link keys) · key = that branch only · neither = texts only.
 async function handleBootstrap(p: Record<string, unknown>) {
   const lang = cleanLang(p.lang);
   const prefix = String(p.prefix ?? "ui.cal.");
+  let scope: { all: boolean; branch: string | null } = { all: false, branch: null };
+  let badLink = false;
+  if (p.admin_pin || p.key) {
+    const sc = await viewScope(p);
+    if (sc instanceof Response) {
+      if (p.admin_pin) return sc;
+      badLink = true;
+    } else scope = sc;
+  }
+  if (scope.all) await ensureAccessKeys();
+  const only = scope.all ? null : (scope.branch ?? "-"); // "-" never matches a branch id
+  let bq = supabase.from("branches").select("id, name, sort, sync_sheet" + (scope.all ? ", access_key" : ""));
+  let sq = supabase.from("staff").select("branch_id, name, label, short, sort").eq("active", true);
+  if (only) { bq = bq.eq("id", only); sq = sq.eq("branch_id", only); }
   const [{ data: branches, error }, { data: staff }, { data: topics }] = await Promise.all([
-    supabase.from("branches").select("id, name, sort, sync_sheet").order("sort").order("name"),
-    supabase.from("staff").select("branch_id, name, label, short, sort").eq("active", true).order("sort").order("name"),
+    bq.order("sort").order("name"),
+    sq.order("sort").order("name"),
     supabase.from("topics").select("id, color, kind, sort").eq("active", true).order("sort"),
   ]);
   if (error) return json({ ok: false, error: error.message });
@@ -424,8 +517,12 @@ async function handleBootstrap(p: Record<string, unknown>) {
   return json({
     ok: true,
     lang,
-    branches: (branches ?? []).map((b) => ({
+    admin: scope.all,
+    need_login: !scope.all && !scope.branch,
+    bad_link: badLink,
+    branches: (branches ?? []).map((b: Record<string, unknown>) => ({
       ...b,
+      ...(scope.all ? {} : { access_key: undefined }),
       staff: (staff ?? []).filter((s) => s.branch_id === b.id)
         .map((s) => ({ name: s.name, label: s.label || s.name, short: s.short || s.name })),
     })),
@@ -436,7 +533,7 @@ async function handleBootstrap(p: Record<string, unknown>) {
 
 // Central admin only. Creates or updates a branch. `branch_pin`: "" leaves it, "-" clears it.
 async function handleSaveBranch(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const name = String(p.name ?? "").trim();
   const id = cleanId(String(p.id ?? "") || name);
   if (!name) return json({ ok: false, error: "missing_name" });
@@ -455,9 +552,20 @@ async function handleSaveBranch(p: Record<string, unknown>) {
   return json({ ok: true, id });
 }
 
+// Central admin only. New secret link for a branch; the old one stops working at once.
+async function handleRotateBranchKey(p: Record<string, unknown>) {
+  { const g = await adminGate(p); if (g) return g; }
+  const id = String(p.branch_id ?? "");
+  const key = newAccessKey();
+  const { error } = await supabase.from("branches").update({ access_key: key }).eq("id", id);
+  if (error) return json({ ok: false, error: error.message });
+  await logAdmin("rotate_branch_key", { id });
+  return json({ ok: true, access_key: key });
+}
+
 // Central admin only. Deletes the branch and everything in it.
 async function handleDeleteBranch(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const id = String(p.id ?? "");
   const { count } = await supabase.from("branches").select("id", { count: "exact", head: true });
   if ((count ?? 0) <= 1) return json({ ok: false, error: "last_branch" });
@@ -470,7 +578,7 @@ async function handleDeleteBranch(p: Record<string, unknown>) {
 // Central admin only. Replaces a branch's active staff list with `staff`: [{name, label, short}].
 // People left out are set inactive (not deleted), so old calendar days keep their name.
 async function handleSaveStaff(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const branch = await getBranch(String(p.branch_id ?? ""));
   if (!branch) return json({ ok: false, error: "unknown_branch" });
   const list = Array.isArray(p.staff) ? p.staff as Array<Record<string, unknown>> : [];
@@ -498,7 +606,7 @@ async function handleSaveStaff(p: Record<string, unknown>) {
 }
 
 async function handleChangeAdminPin(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const next = String(p.new_pin ?? "").trim();
   if (next.length < 4) return json({ ok: false, error: "pin_too_short" });
   await setSetting(ADMIN_PIN_KEY, await hashPassword(next));
@@ -508,7 +616,7 @@ async function handleChangeAdminPin(p: Record<string, unknown>) {
 
 // Lets a page check a PIN before showing its settings screen.
 async function handleCheckAdminPin(p: Record<string, unknown>) {
-  return json({ ok: await checkAdminPin(String(p.admin_pin ?? "")) });
+  return (await adminGate(p)) ?? json({ ok: true });
 }
 
 // ============================================================
@@ -521,7 +629,7 @@ const TOPIC_FIELDS = ["name", "short", "message"] as const;
 // Central admin only. texts: { name: {th, en, ...}, short: {...}, message: {...} }
 // edited: { name: [langs], ... } languages corrected by hand.
 async function handleSaveTopic(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const texts = (p.texts ?? {}) as Record<string, Record<string, string>>;
   const edited = (p.edited ?? {}) as Record<string, string[]>;
   if (!String(texts.name?.th ?? "").trim()) return json({ ok: false, error: "missing_name" });
@@ -556,7 +664,7 @@ async function handleSaveTopic(p: Record<string, unknown>) {
 
 // Central admin only. Hides the topic (old calendar days keep it, just not shown).
 async function handleDeleteTopic(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const id = String(p.id ?? "");
   const { error } = await supabase.from("topics").update({ active: false }).eq("id", id);
   if (error) return json({ ok: false, error: error.message });
@@ -566,7 +674,7 @@ async function handleDeleteTopic(p: Record<string, unknown>) {
 
 // Central admin only. Full topic texts (all languages) for the edit form.
 async function handleGetTopicTexts(p: Record<string, unknown>) {
-  if (!(await checkAdminPin(String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await adminGate(p); if (g) return g; }
   const id = String(p.id ?? "");
   try {
     const rows = await getTranslations(TOPIC_FIELDS.map((f) => `topic.${id}.${f}`));
@@ -592,7 +700,9 @@ type Entry = { topic_id: string; person: string | null };
 
 // Public read: anyone with the calendar link can see the month.
 async function handleScheduleMonth(p: Record<string, unknown>) {
-  const branchId = String(p.branch ?? "");
+  const sc = await viewScope(p);
+  if (sc instanceof Response) return sc;
+  const branchId = sc.all ? String(p.branch ?? "") : (sc.branch as string);
   const month = String(p.month ?? "");
   if (!branchId) return json({ ok: false, error: "missing_branch" });
   if (!/^\d{4}-\d{2}$/.test(month)) return json({ ok: false, error: "bad_month" });
@@ -609,7 +719,7 @@ async function handleScheduleMonth(p: Record<string, unknown>) {
 async function handleSaveScheduleDay(p: Record<string, unknown>) {
   const branch = await getBranch(String(p.branch ?? ""));
   if (!branch) return json({ ok: false, error: "unknown_branch" });
-  if (!(await canEditBranch(branch, String(p.admin_pin ?? "")))) return json({ ok: false, error: "wrong_admin_pin" });
+  { const g = await branchEditGate(branch, String(p.admin_pin ?? "")); if (g) return g; }
   const date = String(p.date ?? "").trim();
   if (!isIsoDate(date)) return json({ ok: false, error: "bad_date" });
   const list = Array.isArray(p.entries) ? p.entries as Array<Record<string, unknown>> : [];
@@ -664,9 +774,12 @@ async function mirrorScheduleDayToSheet(sheetId: string, date: string, entries: 
 // Today's (or `date`) messages, for a daily notifier. `branch` optional (default: all branches).
 // `lang` optional: one language; without it every language is returned.
 async function handleScheduleToday(p: Record<string, unknown>) {
+  const sc = await viewScope(p);
+  if (sc instanceof Response) return sc;
   const date = String(p.date ?? "") || bangkokToday();
   let q = supabase.from("schedule_entries").select("branch_id, topic_id, person").eq("date", date);
-  if (p.branch) q = q.eq("branch_id", String(p.branch));
+  if (!sc.all) q = q.eq("branch_id", sc.branch as string);
+  else if (p.branch) q = q.eq("branch_id", String(p.branch));
   const [{ data: entries, error }, { data: topics }, { data: branches }] = await Promise.all([
     q,
     supabase.from("topics").select("id, sort").eq("active", true).order("sort"),
@@ -709,7 +822,9 @@ async function handleImportScheduleFromSheet(p: Record<string, unknown>) {
   try {
     const [[stateJson] = []] = await sheetsGetValues(sheetId, "APP_STATE1!A2");
     const sheetPin = String(JSON.parse(stateJson ?? "{}").admin_pin ?? "").trim();
-    if (!sheetPin || String(p.admin_pin ?? "").trim() !== sheetPin) return json({ ok: false, error: "wrong_admin_pin" });
+    const given = String(p.admin_pin ?? "").trim();
+    const locked = lockedResponse(await attempt("admin", async () => !!sheetPin && given === sheetPin));
+    if (locked) return locked;
 
     const branchId = cleanId(String(p.branch_id ?? "main")) || "main";
     const existing = await getBranch(branchId);
@@ -808,6 +923,7 @@ const ACTIONS: Record<string, (p: Record<string, unknown>) => Promise<Response>>
   check_admin_pin: handleCheckAdminPin,
   change_admin_pin: handleChangeAdminPin,
   save_branch: handleSaveBranch,
+  rotate_branch_key: handleRotateBranchKey,
   delete_branch: handleDeleteBranch,
   save_staff: handleSaveStaff,
   save_topic: handleSaveTopic,
