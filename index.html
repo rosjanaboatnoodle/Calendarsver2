@@ -142,7 +142,7 @@
     <div class="monthBar" id="loginBox" style="display:none; flex-direction:column; align-items:stretch; gap:8px;">
       <div class="monthLabel" id="loginTitle">🔒 ใส่รหัสแอดมินเพื่อเปิดปฏิทิน</div>
       <div style="display:flex; gap:8px;">
-        <input id="loginPin" type="password" inputmode="numeric" placeholder="รหัสแอดมินกลาง" style="flex:1; min-width:0; padding:10px; border-radius:10px; border:2px solid #c7d2fe; font-size:15px;">
+        <input id="loginPin" type="password" placeholder="รหัสแอดมินกลาง หรือวางลิงก์สาขา" style="flex:1; min-width:0; padding:10px; border-radius:10px; border:2px solid #c7d2fe; font-size:15px;">
         <button onclick="doLogin()">เข้าสู่ระบบ</button>
       </div>
       <div class="statusMsg" id="loginStatus"></div>
@@ -399,7 +399,7 @@
       return;
     }
     if (j && j.ok){
-      if (j.bad_link){ KEY = ""; lsSet("calendar_key", ""); lsSet(cacheKey, ""); }
+      if (j.bad_link){ lsSet("calendar_bad_key", KEY); KEY = ""; lsSet("calendar_key", ""); lsSet(cacheKey, ""); }
       applyBoot(j);
       if (j.need_login || j.bad_link) showLogin(j.bad_link ? "ลิงก์นี้ใช้ไม่ได้แล้ว ขอลิงก์ใหม่จากแอดมิน หรือใส่รหัสแอดมิน" : "");
       else hideLogin();
@@ -415,6 +415,14 @@
 
   async function doLogin(){
     const pin = document.getElementById("loginPin").value.trim();
+    const m = pin.match(/[?&]b=([a-f0-9]{8,64})/i);
+    if (m){
+      KEY = m[1].toLowerCase(); lsSet("calendar_key", KEY);
+      const u = new URL(location.href); u.searchParams.set("b", KEY); history.replaceState(null, "", u);
+      document.getElementById("loginPin").value = "";
+      await bootstrap();
+      return;
+    }
     const j = await api({ action: "check_admin_pin", admin_pin: pin });
     if (!j || !j.ok){ setMsg("loginStatus", errText(j), false); return; }
     ADMIN = pin; ssSet("calendar_admin_pin", pin);
@@ -992,8 +1000,14 @@
     viewYear = now.getFullYear();
     viewMonth = now.getMonth();
     const fromUrl = new URLSearchParams(location.search).get("b");
-    if (fromUrl && /^[a-f0-9]{8,64}$/i.test(fromUrl)){ KEY = fromUrl.toLowerCase(); lsSet("calendar_key", KEY); }
-    else KEY = lsGet("calendar_key") || "";
+    const goodUrlKey = fromUrl && /^[a-f0-9]{8,64}$/i.test(fromUrl)
+      && !(fromUrl.toLowerCase() === lsGet("calendar_bad_key") && lsGet("calendar_key"));
+    if (goodUrlKey){ KEY = fromUrl.toLowerCase(); lsSet("calendar_key", KEY); }
+    else {
+      KEY = lsGet("calendar_key") || "";
+      // ใส่รหัสที่จำไว้กลับในลิงก์ ให้กดเพิ่มลงหน้าจอโฮมแล้วได้สาขาเดิม
+      if (KEY){ const u = new URL(location.href); u.searchParams.set("b", KEY); history.replaceState(null, "", u); }
+    }
     ADMIN = ssGet("calendar_admin_pin");
     const saved = lsGet("calendar_lang");
     lang = LOCALE[saved] ? saved : "th";

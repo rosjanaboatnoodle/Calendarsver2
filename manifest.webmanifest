@@ -1,7 +1,6 @@
 {
   "name": "ปฏิทินตารางงาน",
   "short_name": "ปฏิทินงาน",
-  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#5b73ff",
